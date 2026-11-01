@@ -1,0 +1,10 @@
+build/
+bin/
+apps/
+*.o
+*.a
+*.bmp
+*.png
+*.swp
+*.swo
+.DS_Store
