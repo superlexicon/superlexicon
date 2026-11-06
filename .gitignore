@@ -1,6 +1,9 @@
 build/
 bin/
 apps/
+hardware/
+presentation.html
+*.gif
 *.o
 *.a
 *.bmp

@@ -141,6 +141,8 @@ void dashboard_set_role(const char *role) {
       active_idx = 2;
     } else if (strcmp(role, "joining") == 0) {
       active_idx = 3;
+    } else if (strcmp(role, "repeater") == 0) {
+      active_idx = 4;
     } else {
       active_idx = 0;
     }
@@ -148,8 +150,8 @@ void dashboard_set_role(const char *role) {
   if (active_idx == last_role_idx) return;
   last_role_idx = active_idx;
 
-  static const char *role_names[4] = {"Roamer", "Validator-in-Probation",
-                                      "Validator", "Joining..."};
+  static const char *role_names[5] = {"Roamer", "Validator-in-Probation",
+                                      "Validator", "Joining...", "Repeater"};
   if (dash.role_subtitle_label) {
     set_label_text_if_changed(dash.role_subtitle_label, role_names[active_idx]);
     lv_obj_align(dash.role_subtitle_label, LV_ALIGN_BOTTOM_RIGHT, -4, -4);
@@ -1025,6 +1027,36 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   subnets_card_create(g_tab_views[0]);
   chain_card_create(g_tab_views[0]);
   superapp_views_create(g_tab_views[1], g_tab_views[2], g_tab_views[3], args);
+
+  // Seed default initial state until live WebSocket telemetry arrives
+  dashboard_set_role("validator");
+  dashboard_set_chain_subnet("00000001");
+  subnet_row_set(0, "00000001", 1042, "validating", 915000000LL);
+  subnet_row_set(1, "bb020002", 819, "detected", 916000000LL);
+  set_label_text_if_changed(chain_height_label, "1042");
+  set_label_text_if_changed(chain_validators_label, "4");
+  set_label_text_if_changed(chain_avg_label, "5.6s");
+  recent_block_row_set(0, 1042, 225, 5620.0, 1);
+  recent_block_row_set(1, 1041, 240, 5580.0, 1);
+  recent_block_row_set(2, 1040, 198, 5650.0, 1);
+  static const char *kInitPeers[3][3] = {
+      {"7f3a91c2", "1042", "-78 dBm"},
+      {"4e10b804", "1042", "-84 dBm"},
+      {"9c21d05e", "1042", "-89 dBm"},
+  };
+  for (int r = 0; r < 3; r++) {
+    if (dash.node_rows[r]) {
+      lv_obj_clear_flag(dash.node_rows[r], LV_OBJ_FLAG_HIDDEN);
+    }
+    if (dash.node_dots[r]) {
+      lv_obj_set_style_bg_color(dash.node_dots[r], SL_GREEN_HI, 0);
+      lv_obj_clear_flag(dash.node_dots[r], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (int c = 0; c < 3; c++) {
+      set_label_text_if_changed(dash.node_cells[r][c], kInitPeers[r][c]);
+    }
+  }
+
   dashboard_select_tab(0);
 }
 
