@@ -1,5 +1,7 @@
 # SuperLexicon
 
+> 🌐 **Full Interactive Presentation, Architecture & Live Testnet Telemetry: [www.superlexicon.com](https://www.superlexicon.com)**
+
 SuperLexicon is the **Super-App** for the Lexicon blockchain ecosystem. Running on Linux, macOS, and the Canaan K230 (`568x1232` AMOLED slate), it provides a unified interface combining a real-time **Blockchain & Network Dashboard** with native on-chain applications, while supervising the local `lexicon-node` and `LR2021` FLRC radio bridge:
 
 - **Blockchain & Network Dashboard**: Live network statistics, blockchain metrics (block height, finality latency, TPS, active validators, consensus phases `P1`-`P4`), RF link telemetry & subnet discovery (`JOIN` / `LEAVE`), and node role control (`VALIDATOR` / `ROAMER` / `REPEATER`).
