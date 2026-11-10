@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
     int headless_ticks = 45;
     const char *screenshot_path = nullptr;
     const char *initial_tab = nullptr;
-    bool spawn_daemons = true;
+    bool spawn_daemons = false;
     double user_scale = 0.0;
     const char *rpc_host = getenv("LEXICON_RPC_HOST") ? getenv("LEXICON_RPC_HOST") : "127.0.0.1";
     int rpc_port = getenv("LEXICON_RPC_PORT") ? atoi(getenv("LEXICON_RPC_PORT")) : 8545;
@@ -192,6 +192,8 @@ int main(int argc, char **argv) {
             initial_tab = argv[++i];
         } else if (strcmp(argv[i], "--no-daemons") == 0) {
             spawn_daemons = false;
+        } else if (strcmp(argv[i], "--daemons") == 0) {
+            spawn_daemons = true;
         } else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
             user_scale = atof(argv[++i]);
         } else if (strcmp(argv[i], "--rpc-host") == 0 && i + 1 < argc) {

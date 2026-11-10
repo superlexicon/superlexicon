@@ -3,12 +3,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <cJSON.h>
 
 #include "../theme.h"
 #include "../ws.h"
 #include "superapp_views.h"
+
+extern int superlexicon_supervisor_restart_radio(void);
+extern int superlexicon_supervisor_restart_node(void);
+extern int superlexicon_supervisor_get_radio_pid(void);
+extern int superlexicon_supervisor_get_node_pid(void);
 
 #define SUBNET_ROWS 8
 #define SUBNET_VISIBLE_ROWS 2
@@ -933,6 +939,139 @@ static lv_obj_t *g_tab_views[4];
 static int g_active_tab = 0;
 static lv_obj_t *g_dash_root = NULL;
 static lv_obj_t *g_dash_hdr = NULL;
+static lv_obj_t *g_regular_navbar = NULL;
+static lv_obj_t *g_node_gate_card = NULL;
+static lv_obj_t *g_gate_dot = NULL;
+static lv_obj_t *g_gate_title_lbl = NULL;
+static lv_obj_t *g_gate_heading_lbl = NULL;
+static lv_obj_t *g_gate_desc_lbl = NULL;
+static lv_obj_t *g_gate_status_lbl = NULL;
+static lv_obj_t *g_gate_start_btn = NULL;
+static lv_obj_t *g_gate_start_btn_lbl = NULL;
+static bool g_node_ready = false;
+static bool g_node_starting = false;
+static uint32_t g_node_start_tick = 0;
+
+static void dashboard_update_gate_ui(void) {
+  if (!g_node_gate_card || !lv_obj_is_valid(g_node_gate_card)) return;
+
+  bool file_starting = (access("/tmp/slx_node_starting", F_OK) == 0 ||
+                        access("/tmp/slx_start_node", F_OK) == 0);
+  int npid = superlexicon_supervisor_get_node_pid();
+  int rpid = superlexicon_supervisor_get_radio_pid();
+
+  if (g_node_starting && !file_starting && npid <= 0 &&
+      (lv_tick_get() - g_node_start_tick) > 2500) {
+    g_node_starting = false;
+  }
+
+  bool is_starting = g_node_starting || file_starting || (npid > 0 && !g_node_ready);
+
+  if (dash.role_subtitle_label && lv_obj_is_valid(dash.role_subtitle_label)) {
+    set_label_text_if_changed(dash.role_subtitle_label,
+                              is_starting ? "Starting..." : "Offline");
+    lv_obj_set_style_text_color(dash.role_subtitle_label,
+                                is_starting ? SL_AMBER : SL_RED, 0);
+    lv_obj_align(dash.role_subtitle_label, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
+  }
+
+  if (g_gate_dot && lv_obj_is_valid(g_gate_dot)) {
+    lv_color_t dc = is_starting ? SL_AMBER : SL_RED;
+    lv_obj_set_style_bg_color(g_gate_dot, dc, 0);
+    lv_obj_set_style_shadow_color(g_gate_dot, dc, 0);
+  }
+
+  if (g_gate_title_lbl && lv_obj_is_valid(g_gate_title_lbl)) {
+    set_label_text_if_changed(
+        g_gate_title_lbl,
+        is_starting ? "STARTING SUPERLEXICON NODE" : "SUPERLEXICON NODE OFFLINE");
+  }
+
+  if (g_gate_heading_lbl && lv_obj_is_valid(g_gate_heading_lbl)) {
+    set_label_text_if_changed(
+        g_gate_heading_lbl,
+        is_starting ? "Starting Node Application..."
+                    : "Node Application Not Running");
+  }
+
+  if (g_gate_status_lbl && lv_obj_is_valid(g_gate_status_lbl)) {
+    if (is_starting) {
+      if (npid > 0) {
+        set_label_text_if_changed(
+            g_gate_status_lbl,
+            "STATUS: STARTING  |  Initializing BFT consensus & awaiting live IPC telemetry...");
+      } else if (rpid > 0) {
+        set_label_text_if_changed(
+            g_gate_status_lbl,
+            "STATUS: STARTING  |  LR2021 radio bridge up, launching superlexicon.elf...");
+      } else {
+        set_label_text_if_changed(
+            g_gate_status_lbl,
+            "STATUS: STARTING  |  Launching LR2021 radio bridge & SuperLexicon node...");
+      }
+      lv_obj_set_style_text_color(g_gate_status_lbl, SL_AMBER, 0);
+    } else {
+      set_label_text_if_changed(
+          g_gate_status_lbl,
+          "STATUS: OFFLINE  |  Background node daemon (superlexicon.elf) is stopped");
+      lv_obj_set_style_text_color(g_gate_status_lbl, SL_TEXT_2, 0);
+    }
+  }
+
+  if (g_gate_start_btn && lv_obj_is_valid(g_gate_start_btn)) {
+    lv_obj_set_style_bg_color(g_gate_start_btn,
+                              is_starting ? SL_AMBER : SL_CYAN, 0);
+    if (g_gate_start_btn_lbl && lv_obj_is_valid(g_gate_start_btn_lbl)) {
+      set_label_text_if_changed(
+          g_gate_start_btn_lbl,
+          is_starting ? "STARTING NODE... PLEASE WAIT"
+                      : "START SUPERLEXICON NODE");
+    }
+  }
+}
+
+static void dashboard_set_node_ready(bool ready) {
+  if (ready) {
+    g_node_starting = false;
+    if (!g_node_ready) {
+      g_node_ready = true;
+      if (g_node_gate_card && lv_obj_is_valid(g_node_gate_card)) {
+        lv_obj_add_flag(g_node_gate_card, LV_OBJ_FLAG_HIDDEN);
+      }
+      if (g_regular_navbar && lv_obj_is_valid(g_regular_navbar)) {
+        lv_obj_clear_flag(g_regular_navbar, LV_OBJ_FLAG_HIDDEN);
+      }
+      if (dash.role_subtitle_label && lv_obj_is_valid(dash.role_subtitle_label)) {
+        lv_obj_set_style_text_color(dash.role_subtitle_label, SL_CYAN, 0);
+      }
+      dashboard_set_role(current_role_str);
+      dashboard_select_tab(g_active_tab);
+    }
+  } else {
+    g_node_ready = false;
+    if (g_regular_navbar && lv_obj_is_valid(g_regular_navbar)) {
+      lv_obj_add_flag(g_regular_navbar, LV_OBJ_FLAG_HIDDEN);
+    }
+    for (int i = 0; i < 4; i++) {
+      if (g_tab_views[i] && lv_obj_is_valid(g_tab_views[i])) {
+        lv_obj_add_flag(g_tab_views[i], LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+    if (g_node_gate_card && lv_obj_is_valid(g_node_gate_card)) {
+      lv_obj_clear_flag(g_node_gate_card, LV_OBJ_FLAG_HIDDEN);
+    }
+    dashboard_update_gate_ui();
+  }
+}
+
+static void on_gate_start_node_cb(lv_event_t *e) {
+  (void)e;
+  if (g_node_starting) return;
+  g_node_starting = true;
+  g_node_start_tick = lv_tick_get();
+  superlexicon_supervisor_restart_node();
+  dashboard_update_gate_ui();
+}
 
 void dashboard_on_orientation_changed(int hor_res, int ver_res) {
   if (!g_dash_root || !lv_obj_is_valid(g_dash_root)) return;
@@ -994,7 +1133,7 @@ void dashboard_select_tab(int tab_idx) {
   g_active_tab = tab_idx;
   for (int i = 0; i < 4; i++) {
     if (g_tab_views[i]) {
-      if (i == tab_idx) {
+      if (g_node_ready && i == tab_idx) {
         lv_obj_clear_flag(g_tab_views[i], LV_OBJ_FLAG_HIDDEN);
       } else {
         lv_obj_add_flag(g_tab_views[i], LV_OBJ_FLAG_HIDDEN);
@@ -1062,7 +1201,103 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   lv_obj_set_style_bg_color(line, SL_CYAN_DIM, 0);
   lv_obj_set_style_bg_opa(line, LV_OPA_60, 0);
 
+  /* Node Not Running Prompt Card (shown until background node is started & ready) */
+  g_node_ready = false;
+  g_node_starting = (access("/tmp/slx_node_starting", F_OK) == 0 ||
+                     access("/tmp/slx_start_node", F_OK) == 0);
+  g_node_start_tick = lv_tick_get();
+
+  g_node_gate_card = lv_obj_create(parent);
+  lv_obj_set_width(g_node_gate_card, lv_pct(100));
+  lv_obj_set_height(g_node_gate_card, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_color(g_node_gate_card, SL_BG_CARD, 0);
+  lv_obj_set_style_bg_opa(g_node_gate_card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(g_node_gate_card, SL_BORDER, 0);
+  lv_obj_set_style_border_width(g_node_gate_card, 1, 0);
+  lv_obj_set_style_radius(g_node_gate_card, 14, 0);
+  lv_obj_set_style_pad_all(g_node_gate_card, 18, 0);
+  lv_obj_set_style_pad_row(g_node_gate_card, 14, 0);
+  lv_obj_set_flex_flow(g_node_gate_card, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scrollbar_mode(g_node_gate_card, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_clear_flag(g_node_gate_card, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *gate_hdr = lv_obj_create(g_node_gate_card);
+  lv_obj_remove_style_all(gate_hdr);
+  lv_obj_clear_flag(gate_hdr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(gate_hdr, lv_pct(100), 30);
+  lv_obj_set_flex_flow(gate_hdr, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(gate_hdr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(gate_hdr, 10, 0);
+
+  g_gate_dot = lv_obj_create(gate_hdr);
+  lv_obj_remove_style_all(g_gate_dot);
+  lv_obj_clear_flag(g_gate_dot, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(g_gate_dot, 14, 14);
+  lv_obj_set_style_radius(g_gate_dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(g_gate_dot, SL_RED, 0);
+  lv_obj_set_style_bg_opa(g_gate_dot, LV_OPA_COVER, 0);
+  lv_obj_set_style_shadow_color(g_gate_dot, SL_RED, 0);
+  lv_obj_set_style_shadow_width(g_gate_dot, 14, 0);
+  lv_obj_set_style_shadow_spread(g_gate_dot, 2, 0);
+
+  g_gate_title_lbl = mono_label(gate_hdr, "SUPERLEXICON NODE OFFLINE", SL_CYAN, &jbm_15);
+
+  lv_obj_t *gate_div = lv_obj_create(g_node_gate_card);
+  lv_obj_remove_style_all(gate_div);
+  lv_obj_clear_flag(gate_div, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(gate_div, lv_pct(100), 2);
+  lv_obj_set_style_bg_color(gate_div, lv_color_hex(0x283550), 0);
+  lv_obj_set_style_bg_opa(gate_div, LV_OPA_COVER, 0);
+
+  g_gate_heading_lbl = mono_label(g_node_gate_card, "Node Application Not Running", SL_TEXT, &outfit_28);
+  lv_obj_set_width(g_gate_heading_lbl, lv_pct(100));
+  lv_label_set_long_mode(g_gate_heading_lbl, LV_LABEL_LONG_WRAP);
+
+  g_gate_desc_lbl = mono_label(
+      g_node_gate_card,
+      "The SuperLexicon node application is not running in the background. "
+      "Tap the button below to launch the LR2021 FLRC radio bridge and "
+      "SuperLexicon BFT node daemon. The dashboard UI will render automatically "
+      "once the node is online.",
+      SL_TEXT_2, &outfit_16);
+  lv_obj_set_width(g_gate_desc_lbl, lv_pct(100));
+  lv_label_set_long_mode(g_gate_desc_lbl, LV_LABEL_LONG_WRAP);
+
+  lv_obj_t *status_box = lv_obj_create(g_node_gate_card);
+  lv_obj_remove_style_all(status_box);
+  lv_obj_clear_flag(status_box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_width(status_box, lv_pct(100));
+  lv_obj_set_height(status_box, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_color(status_box, SL_BG_DEEP, 0);
+  lv_obj_set_style_bg_opa(status_box, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_color(status_box, SL_BORDER, 0);
+  lv_obj_set_style_border_width(status_box, 1, 0);
+  lv_obj_set_style_radius(status_box, 8, 0);
+  lv_obj_set_style_pad_all(status_box, 12, 0);
+
+  g_gate_status_lbl = mono_label(
+      status_box,
+      "STATUS: OFFLINE  |  Background node daemon (superlexicon.elf) is stopped",
+      SL_TEXT_2, &jbm_13);
+  lv_obj_set_width(g_gate_status_lbl, lv_pct(100));
+  lv_label_set_long_mode(g_gate_status_lbl, LV_LABEL_LONG_WRAP);
+
+  g_gate_start_btn = lv_button_create(g_node_gate_card);
+  lv_obj_set_size(g_gate_start_btn, lv_pct(100), 56);
+  lv_obj_set_style_bg_color(g_gate_start_btn, SL_CYAN, 0);
+  lv_obj_set_style_bg_opa(g_gate_start_btn, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(g_gate_start_btn, 10, 0);
+  g_gate_start_btn_lbl = mono_label(g_gate_start_btn, "START SUPERLEXICON NODE", SL_BG_DEEP, &jbm_15);
+  lv_obj_center(g_gate_start_btn_lbl);
+  lv_obj_add_event_cb(g_gate_start_btn, on_gate_start_node_cb, LV_EVENT_CLICKED, NULL);
+  if (lv_group_get_default()) {
+    lv_group_add_obj(lv_group_get_default(), g_gate_start_btn);
+    lv_group_focus_obj(g_gate_start_btn);
+  }
+
   lv_obj_t *navbar = lv_obj_create(parent);
+  g_regular_navbar = navbar;
   lv_obj_remove_style_all(navbar);
   lv_obj_clear_flag(navbar, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(navbar, lv_pct(100), 44);
@@ -1070,6 +1305,7 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   lv_obj_set_flex_align(navbar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(navbar, 6, 0);
+  lv_obj_add_flag(navbar, LV_OBJ_FLAG_HIDDEN);
 
   static const char *kTabNames[4] = {"LEXICON", "WALLET", "CHAT", "LEXIAPPS"};
   for (int i = 0; i < 4; i++) {
@@ -1095,6 +1331,7 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
     lv_obj_set_height(v, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(v, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(v, 8, 0);
+    lv_obj_add_flag(v, LV_OBJ_FLAG_HIDDEN);
     g_tab_views[i] = v;
   }
 
@@ -1102,36 +1339,8 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   chain_card_create(g_tab_views[0]);
   superapp_views_create(g_tab_views[1], g_tab_views[2], g_tab_views[3], args);
 
-  // Seed default initial state until live WebSocket telemetry arrives
-  dashboard_set_role("validator");
-  dashboard_set_chain_subnet("00000001");
-  subnet_row_set(0, "00000001", 1042, "validating", 915000000LL);
-  subnet_row_set(1, "bb020002", 819, "detected", 916000000LL);
-  set_label_text_if_changed(chain_height_label, "1042");
-  set_label_text_if_changed(chain_validators_label, "4");
-  set_label_text_if_changed(chain_avg_label, "5.6s");
-  recent_block_row_set(0, 1042, 225, 5620.0, 1);
-  recent_block_row_set(1, 1041, 240, 5580.0, 1);
-  recent_block_row_set(2, 1040, 198, 5650.0, 1);
-  static const char *kInitPeers[3][3] = {
-      {"7f3a91c2", "1042", "-78 dBm"},
-      {"4e10b804", "1042", "-84 dBm"},
-      {"9c21d05e", "1042", "-89 dBm"},
-  };
-  for (int r = 0; r < 3; r++) {
-    if (dash.node_rows[r]) {
-      lv_obj_clear_flag(dash.node_rows[r], LV_OBJ_FLAG_HIDDEN);
-    }
-    if (dash.node_dots[r]) {
-      lv_obj_set_style_bg_color(dash.node_dots[r], SL_GREEN_HI, 0);
-      lv_obj_clear_flag(dash.node_dots[r], LV_OBJ_FLAG_HIDDEN);
-    }
-    for (int c = 0; c < 3; c++) {
-      set_label_text_if_changed(dash.node_cells[r][c], kInitPeers[r][c]);
-    }
-  }
-
   dashboard_select_tab(0);
+  dashboard_set_node_ready(false);
   int init_w = (int)lv_obj_get_width(parent);
   int init_h = (int)lv_obj_get_height(parent);
   if (init_w > 0 && init_h > 0) {
@@ -1207,11 +1416,19 @@ static void refresh_timer_cb(lv_timer_t *timer) {
   static char frame[32768];
   int n = ws_service(frame, sizeof(frame));
   if (n < 0) {
+    if (g_node_ready) {
+      dashboard_set_node_ready(false);
+    } else {
+      dashboard_update_gate_ui();
+    }
     ws_connect(dash.args.rpc_host ? dash.args.rpc_host : "127.0.0.1",
                dash.args.rpc_ws_port, "/");
     return;
   }
   if (n == 0) {
+    if (!g_node_ready) {
+      dashboard_update_gate_ui();
+    }
     return; // nothing new streamed this tick
   }
   cJSON *msg = cJSON_Parse(frame);
@@ -1220,7 +1437,10 @@ static void refresh_timer_cb(lv_timer_t *timer) {
   }
   const cJSON *params = cJSON_GetObjectItem(msg, "params");
   const cJSON *result = params ? cJSON_GetObjectItem(params, "result") : NULL;
-  apply_stats(result);
+  if (cJSON_IsObject(result)) {
+    apply_stats(result);
+    dashboard_set_node_ready(true);
+  }
   cJSON_Delete(msg);
 }
 
@@ -1243,4 +1463,15 @@ void dashboard_stop_timer(void) {
   }
   g_dash_root = NULL;
   g_dash_hdr = NULL;
+  g_regular_navbar = NULL;
+  g_node_gate_card = NULL;
+  g_gate_dot = NULL;
+  g_gate_title_lbl = NULL;
+  g_gate_heading_lbl = NULL;
+  g_gate_desc_lbl = NULL;
+  g_gate_status_lbl = NULL;
+  g_gate_start_btn = NULL;
+  g_gate_start_btn_lbl = NULL;
+  g_node_ready = false;
+  g_node_starting = false;
 }

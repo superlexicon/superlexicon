@@ -82,6 +82,16 @@ void ws_init(size_t frame_cap) {
 }
 
 int ws_connect(const char *host, int port, const char *path) {
+#if defined(__riscv)
+  if (access("/tmp/slx_node_running", F_OK) != 0) {
+    if (ipc_fd_ >= 0) {
+      close(ipc_fd_);
+      ipc_fd_ = -1;
+    }
+    last_ipc_seq_ = 0;
+    return -1;
+  }
+#endif
   if (ipc_fd_ < 0) {
     ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
   }
@@ -92,7 +102,7 @@ int ws_connect(const char *host, int port, const char *path) {
     return 0;
   }
 #if defined(__riscv)
-  return 0;
+  return -1;
 #endif
   struct addrinfo hints;
   memset(&hints, 0, sizeof(hints));
@@ -175,7 +185,13 @@ int ws_connect(const char *host, int port, const char *path) {
   return 0;
 }
 
-int ws_is_connected(void) { return (ipc_fd_ >= 0) || (fd_ >= 0 && connected_); }
+int ws_is_connected(void) {
+#if defined(__riscv)
+  return (access("/tmp/slx_node_running", F_OK) == 0) && (ipc_fd_ >= 0);
+#else
+  return (ipc_fd_ >= 0) || (fd_ >= 0 && connected_);
+#endif
+}
 
 int ws_send_text(const char *text) {
   if (ipc_fd_ < 0) {
@@ -253,6 +269,16 @@ static int drain_socket(void) {
 }
 
 int ws_service(char *buf, size_t cap) {
+#if defined(__riscv)
+  if (access("/tmp/slx_node_running", F_OK) != 0) {
+    if (ipc_fd_ >= 0) {
+      close(ipc_fd_);
+      ipc_fd_ = -1;
+    }
+    last_ipc_seq_ = 0;
+    return -1;
+  }
+#endif
   if (ipc_fd_ < 0) {
     ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
   }
@@ -262,6 +288,10 @@ int ws_service(char *buf, size_t cap) {
     if (read(ipc_fd_, hdr, 8) == 8) {
       uint32_t seq1 = hdr[0];
       uint32_t len = hdr[1];
+      if (seq1 == 0) {
+        last_ipc_seq_ = 0;
+        return 0;
+      }
       if (seq1 != 0 && seq1 != last_ipc_seq_ && len > 0 && len < 122872) {
         size_t n = len < cap - 1 ? len : cap - 1;
         lseek(ipc_fd_, 0x20008, SEEK_SET);
@@ -272,6 +302,7 @@ int ws_service(char *buf, size_t cap) {
           if (read(ipc_fd_, &seq2, 4) == 4 && seq2 == seq1) {
             buf[got] = '\0';
             last_ipc_seq_ = seq1;
+            unlink("/tmp/slx_node_starting");
             return (int)got;
           }
         }
@@ -280,7 +311,7 @@ int ws_service(char *buf, size_t cap) {
     return 0;
   }
 #if defined(__riscv)
-  return 0;
+  return -1;
 #endif
   if (fd_ < 0 || !connected_) {
     return -1;

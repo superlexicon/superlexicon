@@ -1,8 +1,54 @@
 #include "brookesia_app.hpp"
 #include "ui/dashboard.h"
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 extern "C" {
 LV_IMG_DECLARE(img_app_superlexicon);
+
+static int read_pid_file(const char *path) {
+  FILE *fp = fopen(path, "r");
+  if (!fp) return -1;
+  char buf[32] = {0};
+  int pid = -1;
+  if (fgets(buf, sizeof(buf), fp)) {
+    pid = atoi(buf);
+  }
+  fclose(fp);
+  return pid > 0 ? pid : 1;
+}
+
+int superlexicon_supervisor_restart_radio(void) {
+  int fd = open("/tmp/slx_start_radio", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  if (fd >= 0) {
+    write(fd, "1\n", 2);
+    close(fd);
+    return 1;
+  }
+  return -1;
+}
+
+int superlexicon_supervisor_restart_node(void) {
+  int sfd = open("/tmp/slx_node_starting", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  if (sfd >= 0) close(sfd);
+  int fd = open("/tmp/slx_start_node", O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  if (fd >= 0) {
+    write(fd, "1\n", 2);
+    close(fd);
+    return 1;
+  }
+  return -1;
+}
+
+int superlexicon_supervisor_get_radio_pid(void) {
+  return read_pid_file("/tmp/slx_radio_running");
+}
+
+int superlexicon_supervisor_get_node_pid(void) {
+  return read_pid_file("/tmp/slx_node_running");
+}
 }
 
 SuperLexiconApp::SuperLexiconApp(bool use_status_bar, bool use_navigation_bar)
