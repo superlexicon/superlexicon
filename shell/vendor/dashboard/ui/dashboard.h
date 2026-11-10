@@ -16,6 +16,7 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args);
 void dashboard_start_timer(const struct DashboardArgs *args);
 void dashboard_stop_timer(void);
 void dashboard_select_tab(int tab_idx);
+void dashboard_on_orientation_changed(int hor_res, int ver_res);
 
 #ifdef __cplusplus
 }

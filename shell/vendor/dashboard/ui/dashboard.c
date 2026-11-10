@@ -11,7 +11,7 @@
 #include "superapp_views.h"
 
 #define SUBNET_ROWS 8
-#define SUBNET_VISIBLE_ROWS 3
+#define SUBNET_VISIBLE_ROWS 2
 #define BLOCK_ROWS 8
 #define BLOCK_VISIBLE_ROWS 4
 #define BLOCK_ROW_H 38
@@ -147,14 +147,13 @@ void dashboard_set_role(const char *role) {
       active_idx = 0;
     }
   }
-  if (active_idx == last_role_idx) return;
   last_role_idx = active_idx;
 
   static const char *role_names[5] = {"Roamer", "Validator-in-Probation",
                                       "Validator", "Joining...", "Repeater"};
   if (dash.role_subtitle_label) {
     set_label_text_if_changed(dash.role_subtitle_label, role_names[active_idx]);
-    lv_obj_align(dash.role_subtitle_label, LV_ALIGN_BOTTOM_RIGHT, -4, -4);
+    lv_obj_align(dash.role_subtitle_label, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
   }
 }
 
@@ -198,6 +197,9 @@ static void dashboard_set_chain_subnet(const char *subnet_id) {
 }
 
 static const int SUBNET_XS[3] = {0, 148, 286};
+static lv_obj_t *g_subnet_hdrs[4];
+static lv_obj_t *g_block_hdrs[3];
+static lv_obj_t *g_peer_hdrs[3];
 static char subnet_row_ids[SUBNET_ROWS][16];
 static char subnet_row_status[SUBNET_ROWS][24];
 static long long subnet_row_freqs[SUBNET_ROWS];
@@ -315,7 +317,7 @@ static lv_obj_t *subnet_action_button(lv_obj_t *parent, const char *label_text,
 
 static void subnets_card_create(lv_obj_t *parent) {
   lv_obj_t *card = card_create(parent, "SUBNETS", SL_INDIGO, NULL);
-  lv_obj_set_height(card, 224);
+  lv_obj_set_height(card, 182);
 
   lv_obj_t *hdr_row = lv_obj_create(card);
   lv_obj_remove_style_all(hdr_row);
@@ -325,6 +327,7 @@ static void subnets_card_create(lv_obj_t *parent) {
   const char *heads[4] = {"SUBNET", "FREQ", "HEIGHT", "ACTION"};
   for (int i = 0; i < 4; i++) {
     lv_obj_t *h = mono_label(hdr_row, heads[i], SL_TEXT_3, &jbm_13);
+    g_subnet_hdrs[i] = h;
     if (i < 3) {
       lv_obj_align(h, LV_ALIGN_LEFT_MID, SUBNET_XS[i], 0);
     } else {
@@ -339,7 +342,7 @@ static void subnets_card_create(lv_obj_t *parent) {
   lv_obj_set_scroll_dir(subnet_list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(subnet_list, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(subnet_list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(subnet_list, LV_OBJ_FLAG_SCROLL_CHAIN);
+  lv_obj_add_flag(subnet_list, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
 
   for (int i = 0; i < SUBNET_ROWS; i++) {
     subnet_row_ids[i][0] = '\0';
@@ -471,6 +474,7 @@ static void chain_card_create(lv_obj_t *parent) {
   const char *block_heads[3] = {"BLOCK", "TXNS", "CONFIRM"};
   for (int i = 0; i < 3; i++) {
     lv_obj_t *h = mono_label(blocks_hdr, block_heads[i], SL_TEXT_3, &jbm_13);
+    g_block_hdrs[i] = h;
     if (i < 2) {
       lv_obj_align(h, LV_ALIGN_LEFT_MID, BLOCK_XS[i], 0);
     } else {
@@ -485,7 +489,7 @@ static void chain_card_create(lv_obj_t *parent) {
   lv_obj_set_scroll_dir(block_list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(block_list, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(block_list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(block_list, LV_OBJ_FLAG_SCROLL_CHAIN);
+  lv_obj_add_flag(block_list, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
 
   for (int i = 0; i < BLOCK_ROWS; i++) {
     lv_obj_t *row = lv_obj_create(block_list);
@@ -518,6 +522,7 @@ static void chain_card_create(lv_obj_t *parent) {
   const char *heads[3] = {"VALIDATOR", "HEIGHT", "RSSI"};
   for (int i = 0; i < 3; i++) {
     lv_obj_t *h = mono_label(hdr_row, heads[i], SL_TEXT_3, &jbm_13);
+    g_peer_hdrs[i] = h;
     if (i < 2) {
       lv_obj_align(h, LV_ALIGN_LEFT_MID, PEER_XS[i], 0);
     } else {
@@ -532,7 +537,7 @@ static void chain_card_create(lv_obj_t *parent) {
   lv_obj_set_scroll_dir(node_list, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(node_list, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_add_flag(node_list, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(node_list, LV_OBJ_FLAG_SCROLL_CHAIN);
+  lv_obj_add_flag(node_list, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
 
   for (int i = 0; i < NODE_ROWS; i++) {
     lv_obj_t *row = lv_obj_create(node_list);
@@ -926,6 +931,63 @@ static void chain_update(const cJSON *nodes_snap, const cJSON *stats_root) {
 static lv_obj_t *g_tab_btns[4];
 static lv_obj_t *g_tab_views[4];
 static int g_active_tab = 0;
+static lv_obj_t *g_dash_root = NULL;
+static lv_obj_t *g_dash_hdr = NULL;
+
+void dashboard_on_orientation_changed(int hor_res, int ver_res) {
+  if (!g_dash_root || !lv_obj_is_valid(g_dash_root)) return;
+  bool is_land = (hor_res > ver_res);
+  lv_obj_t *scr = lv_obj_get_parent(g_dash_root);
+  int usable_h = (ver_res > 56) ? (ver_res - 56) : ver_res;
+  if (scr && lv_obj_is_valid(scr)) {
+    lv_obj_set_pos(scr, 0, 56);
+    lv_obj_set_size(scr, hor_res, usable_h);
+  }
+  lv_obj_set_pos(g_dash_root, 0, 0);
+  lv_obj_set_size(g_dash_root, hor_res, usable_h);
+  int h_pad = is_land ? 44 : 18;
+  int b_pad = is_land ? 32 : 40;
+  lv_obj_set_style_pad_left(g_dash_root, h_pad, 0);
+  lv_obj_set_style_pad_right(g_dash_root, h_pad, 0);
+  lv_obj_set_style_pad_bottom(g_dash_root, b_pad, 0);
+  if (g_dash_hdr && lv_obj_is_valid(g_dash_hdr)) {
+    lv_obj_set_height(g_dash_hdr, is_land ? 68 : 140);
+    if (dash.role_subtitle_label && lv_obj_is_valid(dash.role_subtitle_label)) {
+      lv_obj_align(dash.role_subtitle_label, LV_ALIGN_BOTTOM_RIGHT, -8, -4);
+    }
+  }
+  const int s_xs[3] = {0, is_land ? 310 : 148, is_land ? 630 : 286};
+  const int bp_xs[2] = {4, is_land ? 430 : 210};
+  for (int c = 0; c < 3; c++) {
+    if (g_subnet_hdrs[c] && lv_obj_is_valid(g_subnet_hdrs[c])) {
+      lv_obj_align(g_subnet_hdrs[c], LV_ALIGN_LEFT_MID, s_xs[c], 0);
+    }
+    for (int r = 0; r < SUBNET_ROWS; r++) {
+      if (subnet_cells[r][c] && lv_obj_is_valid(subnet_cells[r][c])) {
+        lv_obj_align(subnet_cells[r][c], LV_ALIGN_LEFT_MID, s_xs[c], 0);
+      }
+    }
+  }
+  for (int c = 0; c < 2; c++) {
+    if (g_block_hdrs[c] && lv_obj_is_valid(g_block_hdrs[c])) {
+      lv_obj_align(g_block_hdrs[c], LV_ALIGN_LEFT_MID, bp_xs[c], 0);
+    }
+    if (g_peer_hdrs[c] && lv_obj_is_valid(g_peer_hdrs[c])) {
+      lv_obj_align(g_peer_hdrs[c], LV_ALIGN_LEFT_MID, bp_xs[c], 0);
+    }
+    for (int r = 0; r < BLOCK_ROWS; r++) {
+      if (dash.block_cells[r][c] && lv_obj_is_valid(dash.block_cells[r][c])) {
+        lv_obj_align(dash.block_cells[r][c], LV_ALIGN_LEFT_MID, bp_xs[c], 0);
+      }
+    }
+    for (int r = 0; r < NODE_ROWS; r++) {
+      if (dash.node_cells[r][c] && lv_obj_is_valid(dash.node_cells[r][c])) {
+        lv_obj_align(dash.node_cells[r][c], LV_ALIGN_LEFT_MID, bp_xs[c], 0);
+      }
+    }
+  }
+  lv_obj_update_layout(g_dash_root);
+}
 
 void dashboard_select_tab(int tab_idx) {
   if (tab_idx < 0 || tab_idx >= 4) return;
@@ -964,18 +1026,30 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   fallback_last_height = 0;
   fallback_last_height_tick = 0;
 
+  g_dash_root = parent;
   lv_obj_set_style_bg_color(parent, SL_BG_DEEP, 0);
-  lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(parent, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_MOMENTUM);
+  lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                         LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_all(parent, 8, 0);
   lv_obj_set_style_pad_row(parent, 8, 0);
 
+  int cur_w = (int)lv_disp_get_hor_res(NULL);
+  int cur_h = (int)lv_disp_get_ver_res(NULL);
+  int init_h_pad = (cur_w > cur_h) ? 44 : 18;
+  int init_b_pad = (cur_w > cur_h) ? 26 : 36;
+  lv_obj_set_style_pad_top(parent, 10, 0);
+  lv_obj_set_style_pad_left(parent, init_h_pad, 0);
+  lv_obj_set_style_pad_right(parent, init_h_pad, 0);
+  lv_obj_set_style_pad_bottom(parent, init_b_pad, 0);
   lv_obj_t *hdr = lv_obj_create(parent);
+  g_dash_hdr = hdr;
   lv_obj_remove_style_all(hdr);
   lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(hdr, lv_pct(100), 140);
+  lv_obj_set_size(hdr, lv_pct(100), (cur_w > cur_h) ? 72 : 140);
   lv_obj_t *logo = lv_image_create(hdr);
   lv_image_set_src(logo, &img_logo_horizontal);
   lv_obj_align(logo, LV_ALIGN_LEFT_MID, 0, 0);
@@ -1058,6 +1132,11 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   }
 
   dashboard_select_tab(0);
+  int init_w = (int)lv_obj_get_width(parent);
+  int init_h = (int)lv_obj_get_height(parent);
+  if (init_w > 0 && init_h > 0) {
+    dashboard_on_orientation_changed(init_w, init_h + 56);
+  }
 }
 
 static void apply_stats(const cJSON *stats) {
@@ -1162,4 +1241,6 @@ void dashboard_stop_timer(void) {
     lv_timer_del(refresh_timer);
     refresh_timer = NULL;
   }
+  g_dash_root = NULL;
+  g_dash_hdr = NULL;
 }

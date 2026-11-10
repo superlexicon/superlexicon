@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -17,7 +18,7 @@ __attribute__((weak)) int superlexicon_supervisor_restart_node(void) { return 1;
 __attribute__((weak)) int superlexicon_supervisor_get_radio_pid(void) { return 1; }
 __attribute__((weak)) int superlexicon_supervisor_get_node_pid(void) { return 1; }
 
-static struct DashboardArgs g_rpc_args = {"127.0.0.1", 8545, 8566};
+static struct DashboardArgs g_rpc_args = {"127.0.0.1", 8545, 8546};
 static unsigned long long g_latest_height = 0;
 static char g_latest_role[32] = "Roamer";
 static char g_latest_subnet[32] = "00000001";
