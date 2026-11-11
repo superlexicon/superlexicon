@@ -1077,8 +1077,11 @@ void dashboard_on_orientation_changed(int hor_res, int ver_res) {
   if (!g_dash_root || !lv_obj_is_valid(g_dash_root)) return;
   bool is_land = (hor_res > ver_res);
   lv_obj_t *scr = lv_obj_get_parent(g_dash_root);
-  int usable_h = (ver_res > 56) ? (ver_res - 56) : ver_res;
+  int full_h = is_land ? 568 : 1232;
+  int usable_h = full_h - 56;
   if (scr && lv_obj_is_valid(scr)) {
+    lv_obj_set_style_bg_color(scr, SL_BG_DEEP, 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_set_pos(scr, 0, 56);
     lv_obj_set_size(scr, hor_res, usable_h);
   }

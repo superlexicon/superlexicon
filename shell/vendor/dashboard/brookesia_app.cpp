@@ -68,6 +68,8 @@ bool SuperLexiconApp::run(void) {
   lv_obj_t *scr = lv_scr_act();
   if (scr) {
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x070d19), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_set_pos(scr, area.x1, area.y1);
     lv_obj_set_size(scr, w, h);
   }
