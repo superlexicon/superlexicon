@@ -414,7 +414,7 @@ def main() -> None:
     p_dep.add_argument("target", nargs="?", default="--all", help="IP, device suffix, or --all")
     p_dep.add_argument("--only", nargs="*", choices=["node", "ui", "radio", "remoted", "init"], help="Push subset of binaries")
     p_dep.add_argument("--include-config", action="store_true", help="Also overwrite /sdcard/k230-config.json")
-    p_dep.add_argument("--reboot", action="store_true", default=True, help="Reboot after deploy (default: true)")
+    p_dep.add_argument("--reboot", action="store_true", default=False, help="Reboot after deploy (default: false)")
     p_dep.add_argument("--no-reboot", dest="reboot", action="store_false", help="Do not reboot after deploy")
     p_dep.set_defaults(func=cmd_deploy)
 
