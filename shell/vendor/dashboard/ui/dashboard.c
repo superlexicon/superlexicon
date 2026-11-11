@@ -961,7 +961,7 @@ static void dashboard_update_gate_ui(void) {
   int rpid = superlexicon_supervisor_get_radio_pid();
 
   if (g_node_starting && !file_starting && npid <= 0 &&
-      (lv_tick_get() - g_node_start_tick) > 2500) {
+      (lv_tick_get() - g_node_start_tick) > 25000) {
     g_node_starting = false;
   }
 
@@ -999,7 +999,7 @@ static void dashboard_update_gate_ui(void) {
       if (npid > 0) {
         set_label_text_if_changed(
             g_gate_status_lbl,
-            "STATUS: STARTING  |  Initializing BFT consensus & awaiting live IPC telemetry...");
+            "STATUS: STARTING  |  Loading superlexicon.elf & initializing BFT consensus...");
       } else if (rpid > 0) {
         set_label_text_if_changed(
             g_gate_status_lbl,
@@ -1013,7 +1013,7 @@ static void dashboard_update_gate_ui(void) {
     } else {
       set_label_text_if_changed(
           g_gate_status_lbl,
-          "STATUS: OFFLINE  |  Background node daemon (superlexicon.elf) is stopped");
+          "STATUS: OFFLINE  |  Background node daemon (superlexicon.elf) is not yet ready");
       lv_obj_set_style_text_color(g_gate_status_lbl, SL_TEXT_2, 0);
     }
   }
@@ -1066,7 +1066,6 @@ static void dashboard_set_node_ready(bool ready) {
 
 static void on_gate_start_node_cb(lv_event_t *e) {
   (void)e;
-  if (g_node_starting) return;
   g_node_starting = true;
   g_node_start_tick = lv_tick_get();
   superlexicon_supervisor_restart_node();
@@ -1341,10 +1340,10 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
 
   dashboard_select_tab(0);
   dashboard_set_node_ready(false);
-  int init_w = (int)lv_obj_get_width(parent);
-  int init_h = (int)lv_obj_get_height(parent);
+  int init_w = (int)lv_disp_get_hor_res(NULL);
+  int init_h = (int)lv_disp_get_ver_res(NULL);
   if (init_w > 0 && init_h > 0) {
-    dashboard_on_orientation_changed(init_w, init_h + 56);
+    dashboard_on_orientation_changed(init_w, init_h);
   }
 }
 

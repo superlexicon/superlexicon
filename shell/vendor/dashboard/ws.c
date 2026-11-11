@@ -82,16 +82,6 @@ void ws_init(size_t frame_cap) {
 }
 
 int ws_connect(const char *host, int port, const char *path) {
-#if defined(__riscv)
-  if (access("/tmp/slx_node_running", F_OK) != 0) {
-    if (ipc_fd_ >= 0) {
-      close(ipc_fd_);
-      ipc_fd_ = -1;
-    }
-    last_ipc_seq_ = 0;
-    return -1;
-  }
-#endif
   if (ipc_fd_ < 0) {
     ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
   }
@@ -186,11 +176,7 @@ int ws_connect(const char *host, int port, const char *path) {
 }
 
 int ws_is_connected(void) {
-#if defined(__riscv)
-  return (access("/tmp/slx_node_running", F_OK) == 0) && (ipc_fd_ >= 0);
-#else
   return (ipc_fd_ >= 0) || (fd_ >= 0 && connected_);
-#endif
 }
 
 int ws_send_text(const char *text) {
@@ -269,16 +255,6 @@ static int drain_socket(void) {
 }
 
 int ws_service(char *buf, size_t cap) {
-#if defined(__riscv)
-  if (access("/tmp/slx_node_running", F_OK) != 0) {
-    if (ipc_fd_ >= 0) {
-      close(ipc_fd_);
-      ipc_fd_ = -1;
-    }
-    last_ipc_seq_ = 0;
-    return -1;
-  }
-#endif
   if (ipc_fd_ < 0) {
     ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
   }
@@ -290,7 +266,7 @@ int ws_service(char *buf, size_t cap) {
       uint32_t len = hdr[1];
       if (seq1 == 0) {
         last_ipc_seq_ = 0;
-        return 0;
+        return -1;
       }
       if (seq1 != 0 && seq1 != last_ipc_seq_ && len > 0 && len < 122872) {
         size_t n = len < cap - 1 ? len : cap - 1;
@@ -307,8 +283,9 @@ int ws_service(char *buf, size_t cap) {
           }
         }
       }
+      return 0;
     }
-    return 0;
+    return -1;
   }
 #if defined(__riscv)
   return -1;
