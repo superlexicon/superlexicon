@@ -10,12 +10,14 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
 static int fd_ = -1;
 static int connected_ = 0;
 static int ipc_fd_ = -1;
+static int ipc_subscribed_ = 0;
 static uint32_t last_ipc_seq_ = 0;
 static char *accum_ = NULL;
 static size_t accum_len_ = 0;
@@ -23,6 +25,32 @@ static size_t accum_cap_ = 0;
 static char *rx_ = NULL;
 static size_t rx_cap_ = 0;
 static size_t rx_len_ = 0;
+
+static int open_ipc_if_ready(void) {
+  if (ipc_fd_ >= 0) {
+    return ipc_fd_;
+  }
+  struct stat st;
+  if (stat("/tmp/slx_ipc.bin", &st) != 0 || st.st_size < 262144) {
+    return -1;
+  }
+  ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
+  return ipc_fd_;
+}
+
+void ws_close(void) {
+  if (ipc_fd_ >= 0) {
+    close(ipc_fd_);
+    ipc_fd_ = -1;
+  }
+  if (fd_ >= 0) {
+    close(fd_);
+    fd_ = -1;
+  }
+  connected_ = 0;
+  ipc_subscribed_ = 0;
+  last_ipc_seq_ = 0;
+}
 
 static uint32_t now_ms(void) {
   struct timespec ts;
@@ -68,6 +96,7 @@ void base64_key(char out[25]) {
 
 void ws_init(size_t frame_cap) {
   last_ipc_seq_ = 0;
+  ipc_subscribed_ = 0;
 #if defined(__riscv)
   (void)frame_cap;
   return;
@@ -82,13 +111,14 @@ void ws_init(size_t frame_cap) {
 }
 
 int ws_connect(const char *host, int port, const char *path) {
-  if (ipc_fd_ < 0) {
-    ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
-  }
-  if (ipc_fd_ >= 0) {
-    const char *sub =
-        "{\"id\":\"sub-stats\",\"method\":\"subscribe\",\"params\":[\"stats\"]}";
-    ws_send_text(sub);
+  if (open_ipc_if_ready() >= 0) {
+    if (!ipc_subscribed_) {
+      const char *sub =
+          "{\"id\":\"sub-stats\",\"method\":\"subscribe\",\"params\":[\"stats\"]}";
+      if (ws_send_text(sub) == 0) {
+        ipc_subscribed_ = 1;
+      }
+    }
     return 0;
   }
 #if defined(__riscv)
@@ -180,25 +210,32 @@ int ws_is_connected(void) {
 }
 
 int ws_send_text(const char *text) {
-  if (ipc_fd_ < 0) {
-    ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
-  }
-  if (ipc_fd_ >= 0) {
+  if (open_ipc_if_ready() >= 0) {
     size_t len = strlen(text);
     if (len > 0 && len < 8180) {
       uint32_t cmd_seq = 0;
-      lseek(ipc_fd_, 0x3E000, SEEK_SET);
-      read(ipc_fd_, &cmd_seq, 4);
+      if (lseek(ipc_fd_, 0x3E000, SEEK_SET) != 0x3E000) {
+        return -1;
+      }
+      if (read(ipc_fd_, &cmd_seq, 4) != 4) {
+        cmd_seq = 0;
+      }
       uint32_t ulen = (uint32_t)len;
-      lseek(ipc_fd_, 0x3E008, SEEK_SET);
-      write(ipc_fd_, &ulen, 4);
-      write(ipc_fd_, text, len);
+      if (lseek(ipc_fd_, 0x3E008, SEEK_SET) != 0x3E008) {
+        return -1;
+      }
+      if (write(ipc_fd_, &ulen, 4) != 4 ||
+          write(ipc_fd_, text, len) != (ssize_t)len) {
+        return -1;
+      }
       cmd_seq++;
       if (cmd_seq == 0) {
         cmd_seq = 1;
       }
-      lseek(ipc_fd_, 0x3E000, SEEK_SET);
-      write(ipc_fd_, &cmd_seq, 4);
+      if (lseek(ipc_fd_, 0x3E000, SEEK_SET) != 0x3E000 ||
+          write(ipc_fd_, &cmd_seq, 4) != 4) {
+        return -1;
+      }
       return 0;
     }
   }
@@ -255,37 +292,45 @@ static int drain_socket(void) {
 }
 
 int ws_service(char *buf, size_t cap) {
-  if (ipc_fd_ < 0) {
-    ipc_fd_ = open("/tmp/slx_ipc.bin", O_RDWR);
-  }
-  if (ipc_fd_ >= 0) {
+  if (open_ipc_if_ready() >= 0) {
     uint32_t hdr[2] = {0, 0};
-    lseek(ipc_fd_, 0x20000, SEEK_SET);
-    if (read(ipc_fd_, hdr, 8) == 8) {
-      uint32_t seq1 = hdr[0];
-      uint32_t len = hdr[1];
-      if (seq1 == 0) {
-        last_ipc_seq_ = 0;
-        return -1;
+    if (lseek(ipc_fd_, 0x20000, SEEK_SET) != 0x20000 ||
+        read(ipc_fd_, hdr, 8) != 8) {
+      close(ipc_fd_);
+      ipc_fd_ = -1;
+      ipc_subscribed_ = 0;
+      return -1;
+    }
+    uint32_t seq1 = hdr[0];
+    uint32_t len = hdr[1];
+    if (seq1 == 0 && len > 0) {
+      /* Writer (superlexicon.elf) is mid-seqlock update; wait 1.5ms and re-read */
+      usleep(1500);
+      if (lseek(ipc_fd_, 0x20000, SEEK_SET) == 0x20000 &&
+          read(ipc_fd_, hdr, 8) == 8) {
+        seq1 = hdr[0];
+        len = hdr[1];
       }
-      if (seq1 != 0 && seq1 != last_ipc_seq_ && len > 0 && len < 122872) {
-        size_t n = len < cap - 1 ? len : cap - 1;
-        lseek(ipc_fd_, 0x20008, SEEK_SET);
+    }
+    if (seq1 == 0) {
+      return (last_ipc_seq_ > 0) ? 0 : -1;
+    }
+    if (seq1 != last_ipc_seq_ && len > 0 && len < 122872) {
+      size_t n = len < cap - 1 ? len : cap - 1;
+      if (lseek(ipc_fd_, 0x20008, SEEK_SET) == 0x20008) {
         ssize_t got = read(ipc_fd_, buf, n);
         if (got == (ssize_t)n) {
           uint32_t seq2 = 0;
-          lseek(ipc_fd_, 0x20000, SEEK_SET);
-          if (read(ipc_fd_, &seq2, 4) == 4 && seq2 == seq1) {
+          if (lseek(ipc_fd_, 0x20000, SEEK_SET) == 0x20000 &&
+              read(ipc_fd_, &seq2, 4) == 4 && seq2 == seq1) {
             buf[got] = '\0';
             last_ipc_seq_ = seq1;
-            unlink("/tmp/slx_node_starting");
             return (int)got;
           }
         }
       }
-      return 0;
     }
-    return -1;
+    return 0;
   }
 #if defined(__riscv)
   return -1;

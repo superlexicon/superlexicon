@@ -12,6 +12,7 @@ int ws_connect(const char *host, int port, const char *path);
 int ws_service(char *buf, size_t cap);
 int ws_send_text(const char *text);
 int ws_is_connected(void);
+void ws_close(void);
 
 #ifdef __cplusplus
 }

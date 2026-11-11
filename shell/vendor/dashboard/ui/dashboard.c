@@ -1033,6 +1033,7 @@ static void dashboard_update_gate_ui(void) {
 static void dashboard_set_node_ready(bool ready) {
   if (ready) {
     g_node_starting = false;
+    unlink("/tmp/slx_node_starting");
     if (!g_node_ready) {
       g_node_ready = true;
       if (g_node_gate_card && lv_obj_is_valid(g_node_gate_card)) {
@@ -1204,6 +1205,12 @@ void dashboard_create(lv_obj_t *parent, const struct DashboardArgs *args) {
   g_node_ready = false;
   g_node_starting = (access("/tmp/slx_node_starting", F_OK) == 0 ||
                      access("/tmp/slx_start_node", F_OK) == 0);
+  if (!g_node_starting && superlexicon_supervisor_get_node_pid() <= 0) {
+    /* User launched SuperLexicon UI before background auto-start timer elapsed;
+     * signal bg_pid to start the node immediately without waiting. */
+    superlexicon_supervisor_restart_node();
+    g_node_starting = true;
+  }
   g_node_start_tick = lv_tick_get();
 
   g_node_gate_card = lv_obj_create(parent);
@@ -1409,10 +1416,22 @@ static void apply_stats(const cJSON *stats) {
 }
 
 static lv_timer_t *refresh_timer = NULL;
+static uint32_t g_last_gate_poll_tick = 0;
 
 static void refresh_timer_cb(lv_timer_t *timer) {
   (void)timer;
-  static char frame[32768];
+  /* When waiting on the gate screen (!g_node_ready), poll VFS/IPC at 4 Hz (250ms)
+   * instead of 20 Hz (50ms) so app.elf does not contend on RT-Smart's global
+   * dfs_fm_lock() while lwp_load() is reading superlexicon.elf (35 MB) from SD card. */
+  if (!g_node_ready && timer != NULL) {
+    uint32_t now = lv_tick_get();
+    if ((now - g_last_gate_poll_tick) < 250) {
+      return;
+    }
+    g_last_gate_poll_tick = now;
+  }
+
+  static char frame[65536];
   int n = ws_service(frame, sizeof(frame));
   if (n < 0) {
     if (g_node_ready) {
@@ -1426,12 +1445,18 @@ static void refresh_timer_cb(lv_timer_t *timer) {
   }
   if (n == 0) {
     if (!g_node_ready) {
+      /* If ws_service returned 0 while !g_node_ready, reset last_ipc_seq_ so the
+       * next tick re-reads the current snapshot in /tmp/slx_ipc.bin. */
+      ws_init(0);
       dashboard_update_gate_ui();
     }
     return; // nothing new streamed this tick
   }
   cJSON *msg = cJSON_Parse(frame);
   if (!msg) {
+    if (!g_node_ready) {
+      ws_init(0);
+    }
     return;
   }
   const cJSON *params = cJSON_GetObjectItem(msg, "params");
@@ -1439,12 +1464,15 @@ static void refresh_timer_cb(lv_timer_t *timer) {
   if (cJSON_IsObject(result)) {
     apply_stats(result);
     dashboard_set_node_ready(true);
+  } else if (!g_node_ready) {
+    ws_init(0);
   }
   cJSON_Delete(msg);
 }
 
 void dashboard_start_timer(const struct DashboardArgs *args) {
   dash.args = *args;
+  g_last_gate_poll_tick = 0;
   ws_init(256 * 1024);
   ws_connect(dash.args.rpc_host ? dash.args.rpc_host : "127.0.0.1",
              dash.args.rpc_ws_port, "/");
@@ -1460,6 +1488,7 @@ void dashboard_stop_timer(void) {
     lv_timer_del(refresh_timer);
     refresh_timer = NULL;
   }
+  ws_close();
   g_dash_root = NULL;
   g_dash_hdr = NULL;
   g_regular_navbar = NULL;
